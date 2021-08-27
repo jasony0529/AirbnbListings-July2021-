@@ -1,0 +1,126 @@
+CREATE TABLE airbnb_listing(id integer,
+							host_id integer,
+							host_since date,
+							host_location varchar(20),
+							host_response_time decimal,
+							host_response_rate decimal,
+							host_acceptance_rate decimal,
+							host_is_superhost varchar(5),
+							host_neighbourhood varchar(20),
+							host_listings_count numeric,
+							host_identity_verified varchar(2),
+							neighbourhood varchar(20),
+							suburb varchar(20),
+							latitude decimal,
+							longitude decimal,
+							property_type varchar(20),
+							room_type varchar(20),
+							accommodates integer,
+							bathrooms varchar(20),
+							bedrooms numeric,
+							beds numeric,
+							price money,
+							minimum_nights integer,
+							maximum_nights integer,
+							has_availability text,
+							number_of_reviews integer,
+							first_review date,
+							last_review date,
+							review_scores_rating decimal,
+							review_scores_accuracy decimal,
+							review_scores_cleanliness decimal,
+							review_scores_checkin decimal,
+							review_scores_communication	decimal,
+							review_scores_location decimal,
+							review_scores_value decimal,
+							instant_bookable text
+)
+
+COPY airbnb_listing FROM '/private/tmp/listings-2.csv' DELIMITER ',' CSV HEADER
+
+--Overview the number of existing listings per property type
+SELECT property_type,count(*) as ListingCount
+FROM airbnb_listing
+GROUP BY property_type
+ORDER BY ListingCount DESC LIMIT 10
+
+--New listings per year
+SELECT Left(cast(host_since AS varchar),4) AS Year,count(*) AS Quantity
+FROM airbnb_listing
+WHERE host_since is not NULL
+GROUP BY Left(cast(host_since AS varchar),4)
+ORDER BY 1
+
+--Existing listings distribution per location
+SELECT suburb AS Council,count(*) AS Quantity
+FROM airbnb_listing
+WHERE host_since is not NULL
+GROUP BY suburb
+ORDER BY 2 DESC
+
+
+--Overview average price per whole property and per room for each proerty type
+SELECT property_type,bedrooms, count(*) as count, SUM(price)/count(*) AS AVG_Price_Whole, SUM(price)/(count(*)*bedrooms) AS Avg_price_per_room
+FROM airbnb_listing
+WHERE bedrooms IS NOT NULL
+GROUP BY property_type,bedrooms
+ORDER BY
+	CASE property_type WHEN 'Entire apartment' THEN 1
+					   WHEN 'Entire house' THEN 2
+					   WHEN 'Private room in apartment' THEN 3
+					   WHEN 'Private room in house' THEN 4
+	END,bedrooms limit 29
+
+
+--Top 3 Highest Price per room of entire apartment and house per Location
+SELECT suburb,property_type,bedrooms,avg_per_room
+FROM
+(
+SELECT *,
+      DENSE_RANK()OVER(PARTITION BY suburb,property_type,bedrooms ORDER BY avg_per_room DESC) AS rn
+FROM (SELECT suburb,property_type,bedrooms,sum(price)/(count(*)*bedrooms) as avg_per_room
+	  FROM airbnb_listing
+	  WHERE property_type IN('Entire apartment','Entire house','Entire townhouse') AND bedrooms is not null
+	  GROUP BY suburb,property_type,bedrooms
+) as ref1
+	) as ref2
+WHERE ref2.rn<=3
+ORDER BY 1,2,4 DESC
+
+--RoomType Count per year
+SELECT Left(cast(host_since AS varchar),4) AS Year,(room_type),count(*) AS Quantity
+FROM airbnb_listing
+WHERE host_since is not null
+GROUP BY Left(cast(host_since AS varchar),4),room_type
+ORDER BY 1,2
+
+--TOP 10 host who has Most listings in Victoria
+SELECT host_id, host_since, host_location, count as ListingNumber
+FROM
+(
+	SELECT host_id, MIN(host_since) AS host_since, MIN(host_location) as host_location, count(*) as count,
+		DENSE_RANK () OVER(ORDER BY count(*) DESC) as rnk
+	FROM airbnb_listing
+	WHERE property_type IN('Entire apartment','Entire house','Entire townhouse') 
+	GROUP BY host_id
+) as ref
+WHERE rnk <10
+
+--Overal review score per property type
+SELECT host_id,Avg_rating_per_host as Median_rating
+FROM
+(SELECT *,
+ 		ROW_NUMBER() OVER (ORDER BY Avg_rating_per_host) AS R1,
+ 	    ROW_NUMBER() OVER (ORDER BY Avg_rating_per_host DESC) AS R2
+ FROM 
+ --Calculate average rating score per host
+ (
+	 SELECT distinct(host_id) as host_id,sum(review_scores_rating)/count(host_id) AS Avg_rating_per_host
+	 FROM airbnb_listing
+	 WHERE review_scores_rating>0
+	 GROUP BY host_id
+ ) as ref1
+
+ 
+
+)
